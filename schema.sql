@@ -1,7 +1,7 @@
--- Hapus tabel jika sudah ada (hati-hati untuk environment production!)
-DROP TABLE IF EXISTS transcripts;
-DROP TABLE IF EXISTS sessions;
-DROP TABLE IF EXISTS users;
+DROP TABLE IF EXISTS otps CASCADE;
+DROP TABLE IF EXISTS transcripts CASCADE;
+DROP TABLE IF EXISTS sessions CASCADE;
+DROP TABLE IF EXISTS users CASCADE;
 
 -- Tabel Users
 CREATE TABLE users (
@@ -9,6 +9,7 @@ CREATE TABLE users (
     email TEXT UNIQUE NOT NULL,
     password_hash TEXT NOT NULL,
     name TEXT NOT NULL,
+    is_verified BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -31,6 +32,16 @@ CREATE TABLE transcripts (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Tabel OTPs
+CREATE TABLE otps (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    email TEXT NOT NULL,
+    otp_code VARCHAR(6) NOT NULL,
+    expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Index untuk mempercepat query select_by_eq
 CREATE INDEX idx_sessions_user_id ON sessions(user_id);
 CREATE INDEX idx_transcripts_session_id ON transcripts(session_id);
+CREATE INDEX idx_otps_email ON otps(email);

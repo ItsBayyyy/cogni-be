@@ -12,3 +12,5 @@ aiosqlite
 python-multipart
 edge_tts
 slowapi
+aiosmtplib
+jinja2

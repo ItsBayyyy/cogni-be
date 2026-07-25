@@ -9,6 +9,12 @@ class Settings(BaseSettings):
     
     DATABASE_URL: str
     JWT_SECRET: str = "supersecretjwtkey123"
+    
+    SMTP_HOST: str = "smtp.gmail.com"
+    SMTP_PORT: int = 465
+    SMTP_USER: str = ""
+    SMTP_PASS: str = ""
+    SMTP_FROM: str = "CogniFlip <no-reply@cogniflip.com>"
 
     model_config = SettingsConfigDict(
         env_file=".env", 
