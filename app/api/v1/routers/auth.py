@@ -2,11 +2,13 @@ import logging
 import jwt
 import bcrypt
 import datetime
-from pydantic import BaseModel, EmailStr
-from fastapi import APIRouter, Depends, HTTPException, status
+import re
+from pydantic import BaseModel, EmailStr, field_validator
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from app.core.config import get_settings, Settings
 from app.core.postgres_client import PostgresClient
 from app.api.dependencies import get_current_user
+from app.core.security import limiter
 
 router = APIRouter(tags=["auth"])
 logger = logging.getLogger(__name__)
@@ -15,6 +17,17 @@ class UserRegister(BaseModel):
     name: str
     email: EmailStr
     password: str
+
+    @field_validator('password')
+    @classmethod
+    def validate_password(cls, v: str) -> str:
+        if len(v) < 8:
+            raise ValueError("Password must be at least 8 characters")
+        if not re.search(r"[A-Z]", v):
+            raise ValueError("Password must contain at least one uppercase letter")
+        if not re.search(r"\d", v):
+            raise ValueError("Password must contain at least one digit")
+        return v
 
 class UserLogin(BaseModel):
     email: EmailStr
@@ -29,7 +42,8 @@ def get_db(settings: Settings = Depends(get_settings)) -> PostgresClient:
     return PostgresClient(url=settings.DATABASE_URL)
 
 @router.post("/register", response_model=TokenResponse)
-async def register(user: UserRegister, db: PostgresClient = Depends(get_db), settings: Settings = Depends(get_settings)):
+@limiter.limit("3/minute")
+async def register(request: Request, user: UserRegister, db: PostgresClient = Depends(get_db), settings: Settings = Depends(get_settings)):
     existing = await db.select_by_eq("users", "email", user.email)
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
@@ -59,7 +73,8 @@ async def register(user: UserRegister, db: PostgresClient = Depends(get_db), set
     }
 
 @router.post("/login", response_model=TokenResponse)
-async def login(user: UserLogin, db: PostgresClient = Depends(get_db), settings: Settings = Depends(get_settings)):
+@limiter.limit("5/minute")
+async def login(request: Request, user: UserLogin, db: PostgresClient = Depends(get_db), settings: Settings = Depends(get_settings)):
     users = await db.select_by_eq("users", "email", user.email)
     if not users:
         raise HTTPException(status_code=401, detail="Invalid email or password")

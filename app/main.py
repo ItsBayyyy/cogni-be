@@ -1,6 +1,9 @@
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from app.core.security import limiter
 from app.core.config import get_settings
 from app.api.v1.routers import health, session, voice, auth
 from app.services.transcript_service import TranscriptService
@@ -23,13 +26,26 @@ app = FastAPI(
 # 2. TAMBAHKAN CORS MIDDLEWARE SETELAH APP DIBUAT
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # atau spesifik: ["http://localhost:3000", "https://your-v0-preview.vercel.app"]
+    allow_origins=["https://cogniflip-demo.vercel.app", "http://localhost:3000"],
     allow_credentials=True,
     allow_methods=["*"],   # WAJIB include OPTIONS
     allow_headers=["*"],   # WAJIB allow Authorization header
 )
 
-# 3. MASUKKAN ROUTER
+# 3. KONFIGURASI KEAMANAN (Rate Limiting & Security Headers)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    return response
+
+# 4. MASUKKAN ROUTER
 app.include_router(health.router, prefix="/api/v1")
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
 app.include_router(session.router, prefix="/api/v1/sessions", tags=["sessions"])

@@ -11,3 +11,4 @@ python-dotenv>=1.0.1
 aiosqlite
 python-multipart
 edge_tts
+slowapi
