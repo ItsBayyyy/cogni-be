@@ -4,9 +4,9 @@ pydantic[email]>=2.6.4
 pydantic-settings>=2.2.1
 groq>=0.4.2
 edge-tts>=6.1.12
-asyncpg==0.29.0
-pyjwt==2.8.0
-bcrypt==4.1.2
+asyncpg>=0.29.0
+pyjwt>=2.8.0
+bcrypt>=4.1.2
 python-dotenv>=1.0.1
 aiosqlite
 python-multipart
