@@ -121,7 +121,7 @@ async def verify_otp(request: Request, verify_req: VerifyOTPRequest, db: Postgre
     if datetime.datetime.now(datetime.timezone.utc) > expires_at:
         raise HTTPException(status_code=400, detail="OTP expired. Please resend.")
         
-    if verify_req.otp_code != "123456" and latest_otp["otp_code"] != verify_req.otp_code:
+    if latest_otp["otp_code"] != verify_req.otp_code:
         raise HTTPException(status_code=400, detail="Invalid OTP code.")
         
     await db.execute("UPDATE users SET is_verified = TRUE WHERE email = $1", verify_req.email)
@@ -148,7 +148,28 @@ async def resend_otp(request: Request, resend_req: ResendOTPRequest, background_
         
     if users[0].get("is_verified"):
         raise HTTPException(status_code=400, detail="User is already verified")
-        
+
+    # Enforce 60-second cooldown per email at database level
+    otps = await db.select_by_eq_ordered("otps", "email", resend_req.email, order_col="created_at", asc=False)
+    if otps:
+        latest_otp = otps[0]
+        created_at_val = latest_otp.get("created_at")
+        if created_at_val:
+            if isinstance(created_at_val, str):
+                created_at = datetime.datetime.fromisoformat(created_at_val.replace("Z", "+00:00"))
+            else:
+                created_at = created_at_val
+            if created_at.tzinfo is None:
+                created_at = created_at.replace(tzinfo=datetime.timezone.utc)
+            
+            elapsed = (datetime.datetime.now(datetime.timezone.utc) - created_at).total_seconds()
+            if elapsed < 60:
+                remaining = int(60 - elapsed)
+                raise HTTPException(
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                    detail=f"Please wait {remaining} seconds before requesting a new OTP code."
+                )
+
     await db.execute("DELETE FROM otps WHERE email = $1", resend_req.email)
     
     otp_code = generate_otp()
