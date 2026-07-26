@@ -40,7 +40,19 @@ app.add_middleware(
 
 # 3. KONFIGURASI KEAMANAN (Rate Limiting & Security Headers)
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+async def custom_rate_limit_handler(request: Request, exc: RateLimitExceeded):
+    origin = request.headers.get("origin")
+    headers = {}
+    if origin in ALLOWED_ORIGINS:
+        headers["Access-Control-Allow-Origin"] = origin
+        headers["Access-Control-Allow-Credentials"] = "true"
+    return JSONResponse(
+        status_code=429,
+        content={"detail": "Too many attempts. Please wait a minute before trying again."},
+        headers=headers
+    )
+
+app.add_exception_handler(RateLimitExceeded, custom_rate_limit_handler)
 
 ALLOWED_ORIGINS = ["https://cogniflip-demo.vercel.app", "http://localhost:3000"]
 
