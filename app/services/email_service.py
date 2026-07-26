@@ -27,7 +27,40 @@ class EmailService:
         </html>
         """
 
-        # Option 1: Send via Resend HTTPS API (Anti-blocking on Cloud PaaS like Railway)
+        # Option 1: Send via Brevo HTTPS API (Sends to ANY recipient email, 300 free emails/day)
+        if self.settings.BREVO_API_KEY:
+            try:
+                sender_email = self.settings.SMTP_USER if "@" in (self.settings.SMTP_USER or "") else "yuuxdrestapi@gmail.com"
+                def _brevo_request():
+                    req_data = json.dumps({
+                        "sender": {"name": "CogniFlip", "email": sender_email},
+                        "to": [{"email": to_email}],
+                        "subject": "CogniFlip - Your Verification Code",
+                        "htmlContent": html_content
+                    }).encode("utf-8")
+
+                    req = urllib.request.Request(
+                        "https://api.brevo.com/v3/smtp/email",
+                        data=req_data,
+                        headers={
+                            "api-key": self.settings.BREVO_API_KEY.strip(),
+                            "Content-Type": "application/json"
+                        },
+                        method="POST"
+                    )
+                    with urllib.request.urlopen(req, timeout=15) as resp:
+                        return resp.read()
+
+                await asyncio.to_thread(_brevo_request)
+                logger.info(f"OTP email sent via Brevo HTTPS API to {to_email}")
+                return
+            except urllib.error.HTTPError as e:
+                err_body = e.read().decode("utf-8", errors="ignore")
+                logger.error(f"Brevo HTTPS API HTTPError {e.code} for {to_email}: {err_body}")
+            except Exception as e:
+                logger.error(f"Brevo HTTPS API error for {to_email}: {str(e)}")
+
+        # Option 2: Send via Resend HTTPS API
         if self.settings.RESEND_API_KEY:
             try:
                 # Resend requires 'onboarding@resend.dev' unless a custom domain is verified in Resend dashboard

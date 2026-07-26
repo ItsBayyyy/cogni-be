@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     SMTP_FROM: str = "CogniFlip <onboarding@resend.dev>"
     
     RESEND_API_KEY: str = ""
+    BREVO_API_KEY: str = ""
 
     model_config = SettingsConfigDict(
         env_file=".env", 
