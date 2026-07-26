@@ -14,7 +14,9 @@ class Settings(BaseSettings):
     SMTP_PORT: int = 587
     SMTP_USER: str = ""
     SMTP_PASS: str = ""
-    SMTP_FROM: str = "CogniFlip <no-reply@cogniflip.com>"
+    SMTP_FROM: str = "CogniFlip <onboarding@resend.dev>"
+    
+    RESEND_API_KEY: str = ""
 
     model_config = SettingsConfigDict(
         env_file=".env", 
