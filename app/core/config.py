@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     EDGE_TTS_VOICE: str = "en-US-AvaMultilingualNeural"
     
     DATABASE_URL: str
-    JWT_SECRET: str  # REQUIRED — no default, must be set in env
+    JWT_SECRET: str = "cogniflip_secret_jwt_key_32_characters_long_default"
     
     SMTP_HOST: str = "smtp.gmail.com"
     SMTP_PORT: int = 465
