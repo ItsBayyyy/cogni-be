@@ -46,6 +46,10 @@ class ResendOTPRequest(BaseModel):
 class ForgotPasswordRequest(BaseModel):
     email: EmailStr
 
+class VerifyResetOTPRequest(BaseModel):
+    email: EmailStr
+    otp_code: str
+
 class ResetPasswordRequest(BaseModel):
     email: EmailStr
     otp_code: str
@@ -287,6 +291,28 @@ async def forgot_password(request: Request, req: ForgotPasswordRequest, backgrou
     background_tasks.add_task(email_service.send_reset_password_email, req.email, otp_code)
     
     return {"detail": "Reset password code sent to email."}
+
+@router.post("/verify-reset-otp", response_model=MessageResponse)
+@limiter.limit("5/minute")
+async def verify_reset_otp(request: Request, req: VerifyResetOTPRequest, db: PostgresClient = Depends(get_db)):
+    users = await db.select_by_eq("users", "email", req.email)
+    if not users:
+        raise HTTPException(status_code=400, detail="Invalid request")
+        
+    otps = await db.select_by_eq_ordered("otps", "email", req.email, order_col="created_at", asc=False)
+    if not otps:
+        raise HTTPException(status_code=400, detail="No reset code found. Please request a new code.")
+        
+    latest_otp = otps[0]
+    
+    expires_at = datetime.datetime.fromisoformat(latest_otp["expires_at"].replace("Z", "+00:00"))
+    if datetime.datetime.now(datetime.timezone.utc) > expires_at:
+        raise HTTPException(status_code=400, detail="Reset code expired. Please request a new code.")
+        
+    if latest_otp["otp_code"] != req.otp_code:
+        raise HTTPException(status_code=400, detail="Invalid verification code.")
+        
+    return {"detail": "Reset code verified."}
 
 @router.post("/reset-password", response_model=MessageResponse)
 @limiter.limit("5/minute")
