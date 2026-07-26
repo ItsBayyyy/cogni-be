@@ -11,7 +11,7 @@ class EmailService:
 
     async def send_otp_email(self, to_email: str, otp_code: str):
         if not self.settings.SMTP_USER or not self.settings.SMTP_PASS:
-            logger.warning(f"SMTP Credentials missing! Cannot send OTP {otp_code} to {to_email}")
+            logger.warning(f"SMTP not configured. Email to {to_email} was NOT sent.")
             return
             
         message = EmailMessage()

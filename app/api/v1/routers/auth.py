@@ -3,7 +3,7 @@ import jwt
 import bcrypt
 import datetime
 import re
-import random
+import secrets
 from typing import Dict, Any
 from pydantic import BaseModel, EmailStr, field_validator
 from fastapi import APIRouter, Depends, HTTPException, status, Request, BackgroundTasks
@@ -58,7 +58,7 @@ def get_email_service(settings: Settings = Depends(get_settings)) -> EmailServic
     return EmailService(settings=settings)
 
 def generate_otp() -> str:
-    return str(random.randint(100000, 999999))
+    return str(secrets.randbelow(900000) + 100000)
 
 @router.post("/register", response_model=MessageResponse)
 @limiter.limit("3/minute")
@@ -105,7 +105,7 @@ async def register(request: Request, user: UserRegister, background_tasks: Backg
 async def verify_otp(request: Request, verify_req: VerifyOTPRequest, db: PostgresClient = Depends(get_db), settings: Settings = Depends(get_settings)):
     users = await db.select_by_eq("users", "email", verify_req.email)
     if not users:
-        raise HTTPException(status_code=404, detail="User not found")
+        raise HTTPException(status_code=400, detail="Invalid request")
         
     db_user = users[0]
     if db_user.get("is_verified"):
@@ -144,7 +144,7 @@ async def verify_otp(request: Request, verify_req: VerifyOTPRequest, db: Postgre
 async def resend_otp(request: Request, resend_req: ResendOTPRequest, background_tasks: BackgroundTasks, db: PostgresClient = Depends(get_db), email_service: EmailService = Depends(get_email_service)):
     users = await db.select_by_eq("users", "email", resend_req.email)
     if not users:
-        raise HTTPException(status_code=404, detail="User not found")
+        raise HTTPException(status_code=400, detail="Invalid request")
         
     if users[0].get("is_verified"):
         raise HTTPException(status_code=400, detail="User is already verified")

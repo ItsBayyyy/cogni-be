@@ -4,8 +4,9 @@ from app.core.config import get_settings, Settings
 from app.integrations.groq_client import GroqClient
 from app.integrations.edge_tts_client import EdgeTTSClient
 from app.services.voice_service import VoiceService
+from app.api.dependencies import get_current_user
 import logging
-import traceback # Tambahkan ini
+import traceback
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +27,8 @@ def get_voice_service(settings: Settings = Depends(get_settings)) -> VoiceServic
 @router.post("/transcribe", summary="Speech-to-Text (Groq Whisper)")
 async def transcribe_audio(
     file: UploadFile = File(..., description="Upload a .wav, .mp3, or .m4a file"),
-    service: VoiceService = Depends(get_voice_service)
+    service: VoiceService = Depends(get_voice_service),
+    current_user_id: str = Depends(get_current_user)
 ):
     audio_bytes = await file.read()
     
@@ -35,17 +37,15 @@ async def transcribe_audio(
         text = await service.process_audio_input(audio_bytes, file.filename)
         return {"text": text}
     except Exception as e:
-        # PENTING: Cetak detail error ke terminal agar kita tahu baris mana yang rusak
-        print("===== DETAIL ERROR TRANSCRIBE =====")
-        traceback.print_exc() 
-        print("====================================")
-        
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Transcribe Error: {str(e)}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail="Internal processing error. Please try again.")
 
 @router.post("/speak", summary="Text-to-Speech (Edge TTS)")
 async def generate_speech(
     request: TTSRequest,
-    service: VoiceService = Depends(get_voice_service)
+    service: VoiceService = Depends(get_voice_service),
+    current_user_id: str = Depends(get_current_user)
 ):
     """
     Mengubah teks menjadi file audio (MP3).
@@ -56,4 +56,6 @@ async def generate_speech(
         # Mengembalikan file audio langsung sebagai response, bukan JSON
         return Response(content=audio_bytes, media_type="audio/mpeg")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"TTS Error: {str(e)}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail="Internal processing error. Please try again.")

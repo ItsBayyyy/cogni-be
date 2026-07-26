@@ -21,6 +21,16 @@ def _normalize_row(row) -> dict:
 
 _global_pool = None
 
+ALLOWED_TABLES = {"users", "sessions", "transcripts", "otps"}
+ALLOWED_COLUMNS = {
+    "id", "email", "session_id", "user_id", "created_at",
+    "otp_code", "expires_at", "role", "content",
+}
+
+def _validate_identifier(value: str, allowed: set, kind: str = "identifier"):
+    if value not in allowed:
+        raise ValueError(f"Disallowed {kind}: {value}")
+
 class PostgresClient:
     def __init__(self, url: str):
         self.url = url
@@ -37,6 +47,7 @@ class PostgresClient:
             await self.pool.close()
 
     async def insert(self, table: str, data: dict) -> Optional[dict]:
+        _validate_identifier(table, ALLOWED_TABLES, "table")
         if not self.pool:
             await self.connect()
             
@@ -54,6 +65,8 @@ class PostgresClient:
             raise
 
     async def select_by_eq(self, table: str, column: str, value: Any) -> List[dict]:
+        _validate_identifier(table, ALLOWED_TABLES, "table")
+        _validate_identifier(column, ALLOWED_COLUMNS, "column")
         if not self.pool:
             await self.connect()
             
@@ -67,6 +80,9 @@ class PostgresClient:
             raise
 
     async def select_by_eq_ordered(self, table: str, column: str, value: Any, order_col: str, asc: bool = True) -> List[dict]:
+        _validate_identifier(table, ALLOWED_TABLES, "table")
+        _validate_identifier(column, ALLOWED_COLUMNS, "column")
+        _validate_identifier(order_col, ALLOWED_COLUMNS, "column")
         if not self.pool:
             await self.connect()
             

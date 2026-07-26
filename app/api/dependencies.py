@@ -30,9 +30,9 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
     except jwt.InvalidTokenError as e:
-        logger.error(f"JWT Auth Error: {str(e)}")
+        logger.warning(f"JWT Auth Error: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Auth failed: {str(e)}", 
+            detail="Invalid authentication token", 
             headers={"WWW-Authenticate": "Bearer"},
         )

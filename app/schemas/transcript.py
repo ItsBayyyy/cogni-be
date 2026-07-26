@@ -3,7 +3,7 @@ from typing import Literal, List
 
 class MessageRequest(BaseModel):
     role: Literal['user', 'student_agent', 'professor_agent'] = Field(...)
-    content: str = Field(..., description="The spoken or generated text.")
+    content: str = Field(..., max_length=5000, description="The spoken or generated text.")
 
 class MessageResponse(BaseModel):
     id: str

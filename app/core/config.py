@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     EDGE_TTS_VOICE: str = "en-US-AvaMultilingualNeural"
     
     DATABASE_URL: str
-    JWT_SECRET: str = "supersecretjwtkey123"
+    JWT_SECRET: str  # REQUIRED — no default, must be set in env
     
     SMTP_HOST: str = "smtp.gmail.com"
     SMTP_PORT: int = 465

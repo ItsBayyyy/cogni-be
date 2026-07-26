@@ -1,5 +1,7 @@
+import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -9,6 +11,7 @@ from app.api.v1.routers import health, session, voice, auth
 from app.services.transcript_service import TranscriptService
 
 settings = get_settings()
+logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -20,6 +23,9 @@ app = FastAPI(
     title=settings.PROJECT_NAME,
     version=settings.VERSION,
     description="Async-first FastAPI backend for Student/Professor AI Agents.",
+    docs_url=None,       # Disable Swagger UI in production
+    redoc_url=None,      # Disable ReDoc in production
+    openapi_url=None,    # Disable OpenAPI schema in production
     lifespan=lifespan  
 )
 
@@ -35,6 +41,11 @@ app.add_middleware(
 # 3. KONFIGURASI KEAMANAN (Rate Limiting & Security Headers)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.critical(f"Unhandled Exception at {request.url}: {exc}", exc_info=True)
+    return JSONResponse(status_code=500, content={"detail": "Internal server error"})
 
 @app.middleware("http")
 async def add_security_headers(request: Request, call_next):

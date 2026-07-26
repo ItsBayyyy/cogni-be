@@ -45,5 +45,4 @@ class GroqClient:
             )
             return response
         except Exception as e:
-            # Error ini akan ditangkap oleh VoiceService atau Router
-            raise Exception(f"Gagal melakukan transkripsi di Groq: {str(e)}")
+            raise RuntimeError("Groq transcription failed") from e
