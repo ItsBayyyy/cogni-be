@@ -91,7 +91,7 @@ async def register(request: Request, user: UserRegister, background_tasks: Backg
     otp_data = {
         "email": user.email,
         "otp_code": otp_code,
-        "expires_at": expires_at.strftime('%Y-%m-%d %H:%M:%S%z')
+        "expires_at": expires_at
     }
     await db.insert("otps", otp_data)
     
@@ -157,7 +157,7 @@ async def resend_otp(request: Request, resend_req: ResendOTPRequest, background_
     otp_data = {
         "email": resend_req.email,
         "otp_code": otp_code,
-        "expires_at": expires_at.strftime('%Y-%m-%d %H:%M:%S%z')
+        "expires_at": expires_at
     }
     await db.insert("otps", otp_data)
     
