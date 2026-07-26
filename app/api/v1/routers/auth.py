@@ -43,6 +43,25 @@ class VerifyOTPRequest(BaseModel):
 class ResendOTPRequest(BaseModel):
     email: EmailStr
 
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+class ResetPasswordRequest(BaseModel):
+    email: EmailStr
+    otp_code: str
+    new_password: str
+
+    @field_validator('new_password')
+    @classmethod
+    def validate_password(cls, v: str) -> str:
+        if len(v) < 8:
+            raise ValueError("Password must be at least 8 characters")
+        if not re.search(r"[A-Z]", v):
+            raise ValueError("Password must contain at least one uppercase letter")
+        if not re.search(r"\d", v):
+            raise ValueError("Password must contain at least one digit")
+        return v
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str
@@ -220,3 +239,78 @@ async def get_me(db: PostgresClient = Depends(get_db), current_user_id: str = De
         raise HTTPException(status_code=404, detail="User not found")
     db_user = users[0]
     return {"id": str(db_user["id"]), "email": db_user["email"], "name": db_user["name"]}
+
+@router.post("/forgot-password", response_model=MessageResponse)
+@limiter.limit("3/minute")
+async def forgot_password(request: Request, req: ForgotPasswordRequest, background_tasks: BackgroundTasks, db: PostgresClient = Depends(get_db), email_service: EmailService = Depends(get_email_service)):
+    users = await db.select_by_eq("users", "email", req.email)
+    if not users:
+        raise HTTPException(status_code=400, detail="Invalid email or user not found.")
+        
+    db_user = users[0]
+    if not db_user.get("is_verified"):
+        raise HTTPException(status_code=400, detail="Account is not verified yet. Please register or verify first.")
+
+    # Enforce 60-second cooldown per email at database level
+    otps = await db.select_by_eq_ordered("otps", "email", req.email, order_col="created_at", asc=False)
+    if otps:
+        latest_otp = otps[0]
+        created_at_val = latest_otp.get("created_at")
+        if created_at_val:
+            if isinstance(created_at_val, str):
+                created_at = datetime.datetime.fromisoformat(created_at_val.replace("Z", "+00:00"))
+            else:
+                created_at = created_at_val
+            if created_at.tzinfo is None:
+                created_at = created_at.replace(tzinfo=datetime.timezone.utc)
+            
+            elapsed = (datetime.datetime.now(datetime.timezone.utc) - created_at).total_seconds()
+            if elapsed < 60:
+                remaining = int(60 - elapsed)
+                raise HTTPException(
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                    detail=f"Please wait {remaining} seconds before requesting a new reset code."
+                )
+
+    await db.execute("DELETE FROM otps WHERE email = $1", req.email)
+    
+    otp_code = generate_otp()
+    expires_at = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=15)
+    
+    otp_data = {
+        "email": req.email,
+        "otp_code": otp_code,
+        "expires_at": expires_at
+    }
+    await db.insert("otps", otp_data)
+    
+    background_tasks.add_task(email_service.send_reset_password_email, req.email, otp_code)
+    
+    return {"detail": "Reset password code sent to email."}
+
+@router.post("/reset-password", response_model=MessageResponse)
+@limiter.limit("5/minute")
+async def reset_password(request: Request, req: ResetPasswordRequest, db: PostgresClient = Depends(get_db)):
+    users = await db.select_by_eq("users", "email", req.email)
+    if not users:
+        raise HTTPException(status_code=400, detail="Invalid request")
+        
+    otps = await db.select_by_eq_ordered("otps", "email", req.email, order_col="created_at", asc=False)
+    if not otps:
+        raise HTTPException(status_code=400, detail="No reset code found. Please request a new code.")
+        
+    latest_otp = otps[0]
+    
+    expires_at = datetime.datetime.fromisoformat(latest_otp["expires_at"].replace("Z", "+00:00"))
+    if datetime.datetime.now(datetime.timezone.utc) > expires_at:
+        raise HTTPException(status_code=400, detail="Reset code expired. Please request a new code.")
+        
+    if latest_otp["otp_code"] != req.otp_code:
+        raise HTTPException(status_code=400, detail="Invalid verification code.")
+        
+    new_pw_hash = bcrypt.hashpw(req.new_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+    
+    await db.execute("UPDATE users SET password_hash = $1 WHERE email = $2", new_pw_hash, req.email)
+    await db.execute("DELETE FROM otps WHERE email = $1", req.email)
+    
+    return {"detail": "Password reset successfully. Please sign in."}

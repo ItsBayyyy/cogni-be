@@ -12,21 +12,7 @@ class EmailService:
     def __init__(self, settings: Settings):
         self.settings = settings
 
-    async def send_otp_email(self, to_email: str, otp_code: str):
-        html_content = f"""
-        <html>
-            <body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-                <h2 style="color: #333;">Welcome to CogniFlip!</h2>
-                <p>Please use the following 6-digit code to verify your email address:</p>
-                <div style="background-color: #f4f4f4; padding: 15px; text-align: center; border-radius: 8px; margin: 20px 0;">
-                    <span style="font-size: 32px; font-weight: bold; letter-spacing: 5px; color: #000;">{otp_code}</span>
-                </div>
-                <p>This code will expire in 15 minutes.</p>
-                <p style="color: #666; font-size: 12px; margin-top: 40px;">If you didn't request this, you can safely ignore this email.</p>
-            </body>
-        </html>
-        """
-
+    async def _dispatch_email(self, to_email: str, subject: str, html_content: str):
         # Option 1: Send via Brevo HTTPS API (Sends to ANY recipient email, 300 free emails/day)
         if self.settings.BREVO_API_KEY:
             try:
@@ -35,7 +21,7 @@ class EmailService:
                     req_data = json.dumps({
                         "sender": {"name": "CogniFlip", "email": sender_email},
                         "to": [{"email": to_email}],
-                        "subject": "CogniFlip - Your Verification Code",
+                        "subject": subject,
                         "htmlContent": html_content
                     }).encode("utf-8")
 
@@ -52,7 +38,7 @@ class EmailService:
                         return resp.read()
 
                 await asyncio.to_thread(_brevo_request)
-                logger.info(f"OTP email sent via Brevo HTTPS API to {to_email}")
+                logger.info(f"Email sent via Brevo HTTPS API to {to_email}")
                 return
             except urllib.error.HTTPError as e:
                 err_body = e.read().decode("utf-8", errors="ignore")
@@ -63,14 +49,13 @@ class EmailService:
         # Option 2: Send via Resend HTTPS API
         if self.settings.RESEND_API_KEY:
             try:
-                # Resend requires 'onboarding@resend.dev' unless a custom domain is verified in Resend dashboard
                 resend_from = self.settings.SMTP_FROM if "resend.dev" in (self.settings.SMTP_FROM or "") else "CogniFlip <onboarding@resend.dev>"
 
                 def _resend_request():
                     req_data = json.dumps({
                         "from": resend_from,
                         "to": [to_email],
-                        "subject": "CogniFlip - Your Verification Code",
+                        "subject": subject,
                         "html": html_content
                     }).encode("utf-8")
 
@@ -87,7 +72,7 @@ class EmailService:
                         return resp.read()
 
                 await asyncio.to_thread(_resend_request)
-                logger.info(f"OTP email sent via Resend HTTPS API to {to_email}")
+                logger.info(f"Email sent via Resend HTTPS API to {to_email}")
                 return
             except urllib.error.HTTPError as e:
                 err_body = e.read().decode("utf-8", errors="ignore")
@@ -95,7 +80,7 @@ class EmailService:
             except Exception as e:
                 logger.error(f"Resend HTTPS API error for {to_email}: {str(e)}")
 
-        # Option 2: Fallback to SMTP
+        # Option 3: Fallback to SMTP
         if not self.settings.SMTP_USER or not self.settings.SMTP_PASS:
             logger.warning(f"No RESEND_API_KEY or SMTP credentials configured. Email to {to_email} was NOT sent.")
             return
@@ -103,7 +88,7 @@ class EmailService:
         message = EmailMessage()
         message["From"] = self.settings.SMTP_FROM
         message["To"] = to_email
-        message["Subject"] = "CogniFlip - Your Verification Code"
+        message["Subject"] = subject
         message.set_content(html_content, subtype="html")
 
         try:
@@ -117,6 +102,38 @@ class EmailService:
                 start_tls=True if self.settings.SMTP_PORT == 587 else False,
                 timeout=15.0,
             )
-            logger.info(f"OTP email sent via SMTP to {to_email}")
+            logger.info(f"Email sent via SMTP to {to_email}")
         except Exception as e:
             logger.error(f"Failed to send email to {to_email}: {str(e)}")
+
+    async def send_otp_email(self, to_email: str, otp_code: str):
+        html_content = f"""
+        <html>
+            <body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+                <h2 style="color: #333;">Welcome to CogniFlip!</h2>
+                <p>Please use the following 6-digit code to verify your email address:</p>
+                <div style="background-color: #f4f4f4; padding: 15px; text-align: center; border-radius: 8px; margin: 20px 0;">
+                    <span style="font-size: 32px; font-weight: bold; letter-spacing: 5px; color: #000;">{otp_code}</span>
+                </div>
+                <p>This code will expire in 15 minutes.</p>
+                <p style="color: #666; font-size: 12px; margin-top: 40px;">If you didn't request this, you can safely ignore this email.</p>
+            </body>
+        </html>
+        """
+        await self._dispatch_email(to_email, "CogniFlip - Your Verification Code", html_content)
+
+    async def send_reset_password_email(self, to_email: str, otp_code: str):
+        html_content = f"""
+        <html>
+            <body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+                <h2 style="color: #333;">Reset Your Password - CogniFlip</h2>
+                <p>We received a request to reset your password. Use the following 6-digit verification code to proceed:</p>
+                <div style="background-color: #f4f4f4; padding: 15px; text-align: center; border-radius: 8px; margin: 20px 0;">
+                    <span style="font-size: 32px; font-weight: bold; letter-spacing: 5px; color: #000;">{otp_code}</span>
+                </div>
+                <p>This code will expire in 15 minutes.</p>
+                <p style="color: #666; font-size: 12px; margin-top: 40px;">If you didn't request a password reset, you can safely ignore this email.</p>
+            </body>
+        </html>
+        """
+        await self._dispatch_email(to_email, "CogniFlip - Password Reset Code", html_content)
