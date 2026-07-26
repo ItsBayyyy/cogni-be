@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     JWT_SECRET: str
     
     SMTP_HOST: str = "smtp.gmail.com"
-    SMTP_PORT: int = 465
+    SMTP_PORT: int = 587
     SMTP_USER: str = ""
     SMTP_PASS: str = ""
     SMTP_FROM: str = "CogniFlip <no-reply@cogniflip.com>"

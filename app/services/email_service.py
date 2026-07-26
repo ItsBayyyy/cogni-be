@@ -43,6 +43,7 @@ class EmailService:
                 password=self.settings.SMTP_PASS,
                 use_tls=True if self.settings.SMTP_PORT == 465 else False,
                 start_tls=True if self.settings.SMTP_PORT == 587 else False,
+                timeout=15.0,
             )
             logger.info(f"OTP email sent to {to_email}")
         except Exception as e:
