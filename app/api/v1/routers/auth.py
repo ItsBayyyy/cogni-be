@@ -86,7 +86,7 @@ async def register(request: Request, user: UserRegister, background_tasks: Backg
             raise HTTPException(status_code=500, detail="Failed to create user")
 
     otp_code = generate_otp()
-    expires_at = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=15)
+    expires_at = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(seconds=5)
     
     otp_data = {
         "email": user.email,
@@ -173,7 +173,7 @@ async def resend_otp(request: Request, resend_req: ResendOTPRequest, background_
     await db.execute("DELETE FROM otps WHERE email = $1", resend_req.email)
     
     otp_code = generate_otp()
-    expires_at = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=15)
+    expires_at = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(seconds=5)
     
     otp_data = {
         "email": resend_req.email,
