@@ -30,9 +30,12 @@ class EmailService:
         # Option 1: Send via Resend HTTPS API (Anti-blocking on Cloud PaaS like Railway)
         if self.settings.RESEND_API_KEY:
             try:
+                # Resend requires 'onboarding@resend.dev' unless a custom domain is verified in Resend dashboard
+                resend_from = self.settings.SMTP_FROM if "resend.dev" in (self.settings.SMTP_FROM or "") else "CogniFlip <onboarding@resend.dev>"
+
                 def _resend_request():
                     req_data = json.dumps({
-                        "from": self.settings.SMTP_FROM or "CogniFlip <onboarding@resend.dev>",
+                        "from": resend_from,
                         "to": [to_email],
                         "subject": "CogniFlip - Your Verification Code",
                         "html": html_content
@@ -42,7 +45,7 @@ class EmailService:
                         "https://api.resend.com/emails",
                         data=req_data,
                         headers={
-                            "Authorization": f"Bearer {self.settings.RESEND_API_KEY}",
+                            "Authorization": f"Bearer {self.settings.RESEND_API_KEY.strip()}",
                             "Content-Type": "application/json"
                         },
                         method="POST"
@@ -53,6 +56,9 @@ class EmailService:
                 await asyncio.to_thread(_resend_request)
                 logger.info(f"OTP email sent via Resend HTTPS API to {to_email}")
                 return
+            except urllib.error.HTTPError as e:
+                err_body = e.read().decode("utf-8", errors="ignore")
+                logger.error(f"Resend HTTPS API HTTPError {e.code} for {to_email}: {err_body}")
             except Exception as e:
                 logger.error(f"Resend HTTPS API error for {to_email}: {str(e)}")
 
