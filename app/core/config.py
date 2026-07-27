@@ -1,3 +1,4 @@
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
@@ -8,7 +9,15 @@ class Settings(BaseSettings):
     EDGE_TTS_VOICE: str = "en-US-AvaMultilingualNeural"
     
     DATABASE_URL: str
-    JWT_SECRET: str
+    JWT_SECRET: str = Field(min_length=43)
+    JWT_ISSUER: str = "cogniflip-api"
+    JWT_AUDIENCE: str = "cogniflip-web"
+    ACCESS_TOKEN_MINUTES: int = Field(default=15, ge=5, le=60)
+    OTP_PEPPER: str = Field(min_length=32)
+    FALLBACK_ENCRYPTION_KEY: str = ""
+    REDIS_URL: str = ""
+    TRUSTED_PROXY_IPS: str = ""
+    CORS_ORIGINS: str = "https://cogniflip-demo.vercel.app,http://localhost:3000"
     
     SMTP_HOST: str = "smtp.gmail.com"
     SMTP_PORT: int = 587

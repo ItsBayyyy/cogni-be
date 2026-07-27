@@ -1,10 +1,11 @@
-from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, Response
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, Response, Request
+from pydantic import BaseModel, Field, field_validator
 from app.core.config import get_settings, Settings
 from app.integrations.groq_client import GroqClient
 from app.integrations.edge_tts_client import EdgeTTSClient
 from app.services.voice_service import VoiceService
 from app.api.dependencies import get_current_user
+from app.core.security import limiter
 import logging
 import traceback
 
@@ -14,7 +15,25 @@ router = APIRouter(tags=["voice"])
 
 # --- Schema ---
 class TTSRequest(BaseModel):
-    text: str
+    text: str = Field(min_length=1, max_length=2000)
+
+    @field_validator("text")
+    @classmethod
+    def validate_text(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Text cannot be blank")
+        return value
+
+MAX_AUDIO_BYTES = 10 * 1024 * 1024
+ALLOWED_AUDIO_TYPES = {
+    "audio/mpeg",
+    "audio/mp4",
+    "audio/ogg",
+    "audio/wav",
+    "audio/webm",
+    "video/webm",
+}
 
 # --- Dependencies ---
 def get_voice_service(settings: Settings = Depends(get_settings)) -> VoiceService:
@@ -25,12 +44,19 @@ def get_voice_service(settings: Settings = Depends(get_settings)) -> VoiceServic
 # --- Endpoints ---
 
 @router.post("/transcribe", summary="Speech-to-Text (Groq Whisper)")
+@limiter.limit("10/minute")
 async def transcribe_audio(
+    request: Request,
     file: UploadFile = File(..., description="Upload a .wav, .mp3, or .m4a file"),
     service: VoiceService = Depends(get_voice_service),
     current_user_id: str = Depends(get_current_user)
 ):
-    audio_bytes = await file.read()
+    if file.content_type not in ALLOWED_AUDIO_TYPES:
+        raise HTTPException(status_code=415, detail="Unsupported audio type")
+
+    audio_bytes = await file.read(MAX_AUDIO_BYTES + 1)
+    if len(audio_bytes) > MAX_AUDIO_BYTES:
+        raise HTTPException(status_code=413, detail="Audio file is too large")
     
     try:
         # Menjalankan proses transkripsi
@@ -42,8 +68,10 @@ async def transcribe_audio(
         raise HTTPException(status_code=500, detail="Internal processing error. Please try again.")
 
 @router.post("/speak", summary="Text-to-Speech (Edge TTS)")
+@limiter.limit("20/minute")
 async def generate_speech(
-    request: TTSRequest,
+    request: Request,
+    payload: TTSRequest,
     service: VoiceService = Depends(get_voice_service),
     current_user_id: str = Depends(get_current_user)
 ):
@@ -51,7 +79,7 @@ async def generate_speech(
     Mengubah teks menjadi file audio (MP3).
     """
     try:
-        audio_bytes = await service.generate_audio_output(request.text)
+        audio_bytes = await service.generate_audio_output(payload.text)
         
         # Mengembalikan file audio langsung sebagai response, bukan JSON
         return Response(content=audio_bytes, media_type="audio/mpeg")

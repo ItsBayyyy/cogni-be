@@ -11,7 +11,7 @@ CogniFlip adalah *backend* API berbasis *async-first* yang dibangun dengan **Fas
 ### Ketahanan Tingkat Enterprise (SRE Best Practices)
 * **Zero Data Loss Architecture:** Semua transaksi *database* menggunakan sistem antrean.
 * **Smart Retry & Exponential Backoff:** Mekanisme pemulihan otomatis saat *database* (Supabase) mengalami *timeout* atau gangguan jaringan.
-* **ACID SQLite Fallback:** Jika kegagalan *database* utama bersifat fatal, data diamankan secara asinkronus ke dalam *database* SQLite lokal menggunakan `aiosqlite`, mencegah *race conditions* dan *file corruption*.
+* **Encrypted SQLite Fallback:** Jika database utama gagal, payload fallback dienkripsi dengan Fernet sebelum ditulis ke SQLite. Fallback dinonaktifkan secara fail-closed bila kunci enkripsi tidak dikonfigurasi.
 * **Logical UNION Aggregation:** Saat *database* utama *down*, layanan agregator tetap mampu menyajikan riwayat obrolan secara utuh kepada pengguna dengan menggabungkan data lokal dan *cloud*.
 * **Graceful Disconnects:** Proses generasi AI (penggunaan token LPU) akan dihentikan secara otomatis jika klien/pengguna terputus dari koneksi.
 
@@ -47,7 +47,9 @@ CogniFlip adalah *backend* API berbasis *async-first* yang dibangun dengan **Fas
    ```bash
    cp .env.example .env
    ```
-   *Pastikan Anda telah mengisi `GROQ_API_KEY`, `SUPABASE_URL`, dan `SUPABASE_KEY`. Opsional: isi `EDGE_TTS_VOICE` untuk mengganti suara default `en-US-AvaMultilingualNeural`.*
+   Wajib isi `GROQ_API_KEY`, `DATABASE_URL`, `JWT_SECRET`, dan `OTP_PEPPER`.
+   Gunakan secret manager pada production; jangan menyalin nilai dari contoh atau Git history.
+   Isi `FALLBACK_ENCRYPTION_KEY` jika encrypted SQLite fallback digunakan.
 
 ## Menjalankan Server
 
@@ -58,7 +60,7 @@ uvicorn main:app --reload
 ```
 
 Aplikasi akan berjalan di `http://localhost:8000`.
-* **Swagger UI Documentation:** Kunjungi `http://localhost:8000/docs` untuk menguji API secara langsung.
+Swagger, ReDoc, dan OpenAPI schema dinonaktifkan. Aktifkan hanya pada environment development yang terisolasi bila benar-benar diperlukan.
 
 ## Menjalankan Pengujian (Chaos Engineering)
 

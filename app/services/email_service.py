@@ -1,5 +1,6 @@
 import logging
 import json
+import hashlib
 import urllib.request
 import asyncio
 from email.message import EmailMessage
@@ -8,11 +9,15 @@ from app.core.config import Settings
 
 logger = logging.getLogger(__name__)
 
+def _recipient_id(email: str) -> str:
+    return hashlib.sha256(email.strip().lower().encode("utf-8")).hexdigest()[:12]
+
 class EmailService:
     def __init__(self, settings: Settings):
         self.settings = settings
 
     async def _dispatch_email(self, to_email: str, subject: str, html_content: str):
+        recipient_id = _recipient_id(to_email)
         # Option 1: Send via Brevo HTTPS API (Sends to ANY recipient email, 300 free emails/day)
         if self.settings.BREVO_API_KEY:
             try:
@@ -38,13 +43,16 @@ class EmailService:
                         return resp.read()
 
                 await asyncio.to_thread(_brevo_request)
-                logger.info(f"Email sent via Brevo HTTPS API to {to_email}")
+                logger.info("Email sent via Brevo recipient_id=%s", recipient_id)
                 return
             except urllib.error.HTTPError as e:
-                err_body = e.read().decode("utf-8", errors="ignore")
-                logger.error(f"Brevo HTTPS API HTTPError {e.code} for {to_email}: {err_body}")
-            except Exception as e:
-                logger.error(f"Brevo HTTPS API error for {to_email}: {str(e)}")
+                logger.error(
+                    "Brevo email request failed status=%s recipient_id=%s",
+                    e.code,
+                    recipient_id,
+                )
+            except Exception:
+                logger.error("Brevo email request failed recipient_id=%s", recipient_id)
 
         # Option 2: Send via Resend HTTPS API
         if self.settings.RESEND_API_KEY:
@@ -72,17 +80,20 @@ class EmailService:
                         return resp.read()
 
                 await asyncio.to_thread(_resend_request)
-                logger.info(f"Email sent via Resend HTTPS API to {to_email}")
+                logger.info("Email sent via Resend recipient_id=%s", recipient_id)
                 return
             except urllib.error.HTTPError as e:
-                err_body = e.read().decode("utf-8", errors="ignore")
-                logger.error(f"Resend HTTPS API HTTPError {e.code} for {to_email}: {err_body}")
-            except Exception as e:
-                logger.error(f"Resend HTTPS API error for {to_email}: {str(e)}")
+                logger.error(
+                    "Resend email request failed status=%s recipient_id=%s",
+                    e.code,
+                    recipient_id,
+                )
+            except Exception:
+                logger.error("Resend email request failed recipient_id=%s", recipient_id)
 
         # Option 3: Fallback to SMTP
         if not self.settings.SMTP_USER or not self.settings.SMTP_PASS:
-            logger.warning(f"No RESEND_API_KEY or SMTP credentials configured. Email to {to_email} was NOT sent.")
+            logger.warning("Email provider is not configured recipient_id=%s", recipient_id)
             return
 
         message = EmailMessage()
@@ -102,9 +113,9 @@ class EmailService:
                 start_tls=True if self.settings.SMTP_PORT == 587 else False,
                 timeout=15.0,
             )
-            logger.info(f"Email sent via SMTP to {to_email}")
-        except Exception as e:
-            logger.error(f"Failed to send email to {to_email}: {str(e)}")
+            logger.info("Email sent via SMTP recipient_id=%s", recipient_id)
+        except Exception:
+            logger.error("SMTP email request failed recipient_id=%s", recipient_id)
 
     async def send_otp_email(self, to_email: str, otp_code: str):
         html_content = f"""

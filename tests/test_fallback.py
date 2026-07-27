@@ -1,6 +1,9 @@
 import pytest
 import os
+import sqlite3
+from contextlib import closing
 from unittest.mock import AsyncMock
+from cryptography.fernet import Fernet
 from app.services.transcript_service import TranscriptService
 from app.core.postgres_client import PostgresClient
 
@@ -10,7 +13,10 @@ async def test_postgres_fallback_to_sqlite():
     mock_db.insert.side_effect = Exception("Simulasi PostgreSQL Timeout/Down!")
     mock_db.select_by_eq_ordered.return_value = []
 
-    service = TranscriptService(db=mock_db)
+    service = TranscriptService(
+        db=mock_db,
+        fallback_encryption_key=Fernet.generate_key().decode("utf-8"),
+    )
     
     test_db_path = "test_fallback.db"
     service.fallback_db = test_db_path
@@ -30,6 +36,16 @@ async def test_postgres_fallback_to_sqlite():
     assert mock_db.insert.call_count == 4
 
     assert os.path.exists(test_db_path)
+    with closing(sqlite3.connect(test_db_path)) as db:
+        ciphertext = db.execute(
+            """
+            SELECT payload_ciphertext
+            FROM offline_transcripts_encrypted
+            WHERE session_id = ?
+            """,
+            (session_id,),
+        ).fetchone()[0]
+    assert b"Tes sistem ketahanan!" not in bytes(ciphertext)
 
     print("\n--- Memulai Tes Pembacaan dari SQLite ---")
     transcript = await service.get_transcript(session_id)

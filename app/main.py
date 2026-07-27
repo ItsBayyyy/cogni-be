@@ -12,6 +12,11 @@ from app.services.transcript_service import TranscriptService
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
+ALLOWED_ORIGINS = frozenset(
+    origin.strip()
+    for origin in settings.CORS_ORIGINS.split(",")
+    if origin.strip()
+)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -32,10 +37,10 @@ app = FastAPI(
 # 2. TAMBAHKAN CORS MIDDLEWARE SETELAH APP DIBUAT
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://cogniflip-demo.vercel.app", "http://localhost:3000"],
-    allow_credentials=True,
-    allow_methods=["*"],   # WAJIB include OPTIONS
-    allow_headers=["*"],   # WAJIB allow Authorization header
+    allow_origins=list(ALLOWED_ORIGINS),
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "Accept"],
 )
 
 # 3. KONFIGURASI KEAMANAN (Rate Limiting & Security Headers)
@@ -45,16 +50,13 @@ async def custom_rate_limit_handler(request: Request, exc: RateLimitExceeded):
     headers = {}
     if origin in ALLOWED_ORIGINS:
         headers["Access-Control-Allow-Origin"] = origin
-        headers["Access-Control-Allow-Credentials"] = "true"
     return JSONResponse(
         status_code=429,
         content={"detail": "Too many attempts. Please wait a minute before trying again."},
-        headers=headers
+        headers={**headers, "Retry-After": "60"}
     )
 
 app.add_exception_handler(RateLimitExceeded, custom_rate_limit_handler)
-
-ALLOWED_ORIGINS = ["https://cogniflip-demo.vercel.app", "http://localhost:3000"]
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
@@ -63,7 +65,6 @@ async def global_exception_handler(request: Request, exc: Exception):
     headers = {}
     if origin in ALLOWED_ORIGINS:
         headers["Access-Control-Allow-Origin"] = origin
-        headers["Access-Control-Allow-Credentials"] = "true"
     return JSONResponse(status_code=500, content={"detail": "Internal server error"}, headers=headers)
 
 @app.middleware("http")

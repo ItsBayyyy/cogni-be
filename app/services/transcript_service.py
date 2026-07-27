@@ -3,6 +3,7 @@ import asyncio
 import json
 import logging
 import aiosqlite
+from cryptography.fernet import Fernet, InvalidToken
 from app.utils.time import get_current_timestamp
 from app.core.postgres_client import PostgresClient
 from app.schemas.transcript import MessageResponse, TranscriptResponse
@@ -10,18 +11,23 @@ from app.schemas.transcript import MessageResponse, TranscriptResponse
 logger = logging.getLogger(__name__)
 
 class TranscriptService:
-    def __init__(self, db: PostgresClient):
+    def __init__(self, db: PostgresClient, fallback_encryption_key: str = ""):
         self.db = db
         self.fallback_db = "fallback.db"
+        self._cipher = (
+            Fernet(fallback_encryption_key.encode("utf-8"))
+            if fallback_encryption_key
+            else None
+        )
 
     @classmethod
     async def init_fallback_db(cls, db_path: str = "fallback.db"):
         async with aiosqlite.connect(db_path) as db:
             await db.execute("""
-                CREATE TABLE IF NOT EXISTS offline_transcripts (
+                CREATE TABLE IF NOT EXISTS offline_transcripts_encrypted (
                     id TEXT PRIMARY KEY,
                     session_id TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
+                    payload_ciphertext BLOB NOT NULL,
                     timestamp TEXT NOT NULL
                 )
             """)
@@ -46,27 +52,47 @@ class TranscriptService:
                     return MessageResponse(**message_data)
                 return MessageResponse(**inserted_data)
 
-            except Exception as e:
+            except Exception:
                 if attempt < max_retries:
                     delay = 2 ** attempt
-                    logger.warning(f"[DB Write] Timeout/Error (Attempt {attempt + 1}/{max_retries}). Retrying in {delay}s... Error: {e}")
+                    logger.warning(
+                        "[DB Write] attempt %s/%s failed; retrying in %ss",
+                        attempt + 1,
+                        max_retries,
+                        delay,
+                    )
                     await asyncio.sleep(delay)
                 else:
-                    logger.error(f"[DB Write] FATAL: All {max_retries} retries failed! Writing to SQLite fallback. Error: {e}")
+                    logger.error(
+                        "[DB Write] all %s retries failed; using encrypted fallback",
+                        max_retries,
+                    )
                     await self._write_to_fallback_db(message_data)
                     return MessageResponse(**message_data)
 
     async def _write_to_fallback_db(self, data: dict):
+        if not self._cipher:
+            raise RuntimeError(
+                "Encrypted fallback is disabled because FALLBACK_ENCRYPTION_KEY is not configured"
+            )
         try:
+            ciphertext = self._cipher.encrypt(
+                json.dumps(data, default=str).encode("utf-8")
+            )
             async with aiosqlite.connect(self.fallback_db) as db:
                 await db.execute(
-                    "INSERT INTO offline_transcripts (id, session_id, payload_json, timestamp) VALUES (?, ?, ?, ?)",
-                    (data["id"], data["session_id"], json.dumps(data), data["created_at"])
+                    """
+                    INSERT INTO offline_transcripts_encrypted
+                        (id, session_id, payload_ciphertext, timestamp)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    (data["id"], data["session_id"], ciphertext, data["created_at"])
                 )
                 await db.commit()
-            logger.info(f"Payload ID {data['id']} safely written to {self.fallback_db}")
-        except Exception as e:
-            logger.critical(f"SRE CRITICAL ALERT: Failed to write to fallback SQLite! Data loss: {e}")
+            logger.info("Encrypted transcript payload written to fallback storage")
+        except Exception:
+            logger.critical("Failed to write encrypted fallback transcript")
+            raise
 
     async def get_transcript(self, session_id: str) -> TranscriptResponse:
         db_records = []
@@ -80,23 +106,29 @@ class TranscriptService:
                 order_col="created_at",
                 asc=True
             )
-        except Exception as e:
-            logger.error(f"[DB Read] Gagal mengambil transkrip dari database: {e}")
+        except Exception:
+            logger.error("[DB Read] failed to retrieve transcript")
 
-        try:
-            async with aiosqlite.connect(self.fallback_db) as db:
-                db.row_factory = aiosqlite.Row
-                async with db.execute(
-                    "SELECT payload_json FROM offline_transcripts WHERE session_id = ?",
-                    (session_id,)
-                ) as cursor:
-                    async for row in cursor:
-                        try:
-                            fallback_records.append(json.loads(row["payload_json"]))
-                        except json.JSONDecodeError:
-                            logger.error("Corrupted JSON payload in SQLite fallback.")
-        except Exception as e:
-            logger.error(f"[Fallback Read] Gagal membaca fallback SQLite: {e}")
+        if self._cipher:
+            try:
+                async with aiosqlite.connect(self.fallback_db) as db:
+                    db.row_factory = aiosqlite.Row
+                    async with db.execute(
+                        """
+                        SELECT payload_ciphertext
+                        FROM offline_transcripts_encrypted
+                        WHERE session_id = ?
+                        """,
+                        (session_id,)
+                    ) as cursor:
+                        async for row in cursor:
+                            try:
+                                plaintext = self._cipher.decrypt(row["payload_ciphertext"])
+                                fallback_records.append(json.loads(plaintext))
+                            except (InvalidToken, json.JSONDecodeError):
+                                logger.error("Invalid encrypted fallback transcript payload")
+            except Exception:
+                logger.error("Failed to read encrypted fallback transcript")
 
         combined_records = db_records + fallback_records
 

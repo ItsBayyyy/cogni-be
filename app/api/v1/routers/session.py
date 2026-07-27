@@ -15,6 +15,7 @@ from app.schemas.session import SessionStartRequest, SessionResponse
 from app.schemas.transcript import MessageRequest, TranscriptResponse
 from app.schemas.evaluation import EvaluationResponse
 from app.api.dependencies import get_current_user  # Pastikan file dependencies.py sudah ada
+from app.core.security import limiter
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["session"])
@@ -29,8 +30,14 @@ def get_groq(settings: Settings = Depends(get_settings)) -> GroqClient:
 def get_session_service(db: PostgresClient = Depends(get_db)) -> SessionService:
     return SessionService(db=db)
 
-def get_transcript_service(db: PostgresClient = Depends(get_db)) -> TranscriptService:
-    return TranscriptService(db=db)
+def get_transcript_service(
+    db: PostgresClient = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> TranscriptService:
+    return TranscriptService(
+        db=db,
+        fallback_encryption_key=settings.FALLBACK_ENCRYPTION_KEY,
+    )
 
 def get_student_agent(groq: GroqClient = Depends(get_groq)) -> StudentAgent:
     return StudentAgent(groq_client=groq)
@@ -41,12 +48,14 @@ def get_professor_agent(groq: GroqClient = Depends(get_groq)) -> ProfessorAgent:
 # --- Endpoints ---
 
 @router.post("/start", response_model=SessionResponse, status_code=status.HTTP_201_CREATED)
+@limiter.limit("20/hour")
 async def start_session(
-    request: SessionStartRequest, 
+    request: Request,
+    payload: SessionStartRequest,
     service: SessionService = Depends(get_session_service),
     current_user_id: str = Depends(get_current_user) # Wajib bawa token JWT
 ):
-    return await service.create_session(user_id=current_user_id, topic=request.topic, persona=request.persona)
+    return await service.create_session(user_id=current_user_id, topic=payload.topic, persona=payload.persona)
 
 @router.get("/", response_model=List[SessionResponse])
 async def get_all_sessions(
@@ -58,11 +67,12 @@ async def get_all_sessions(
 
 
 @router.post("/{id}/message")
+@limiter.limit("20/minute")
 async def add_message_stream(
     id: str,
     request_data: MessageRequest,
     background_tasks: BackgroundTasks,
-    http_request: Request,
+    request: Request,
     session_service: SessionService = Depends(get_session_service),
     transcript_service: TranscriptService = Depends(get_transcript_service),
     student_agent: StudentAgent = Depends(get_student_agent),
@@ -73,7 +83,7 @@ async def add_message_stream(
     if not session or session.user_id != current_user_id:
         raise HTTPException(status_code=404, detail="Session not found or unauthorized")
         
-    background_tasks.add_task(transcript_service.add_message, id, request_data.role, request_data.content)
+    background_tasks.add_task(transcript_service.add_message, id, "user", request_data.content)
 
     transcript = await transcript_service.get_transcript(session_id=id)
 
@@ -82,14 +92,14 @@ async def add_message_stream(
         try:
             # Mengirimkan persona dari database sesi ke Agent!
             async for chunk in student_agent.generate_stream(transcript.messages, request_data.content, persona=session.persona, topic=session.topic):
-                if await http_request.is_disconnected():
+                if await request.is_disconnected():
                     logger.warning(f"Client disconnected for session {id}. Halting Groq LLM Stream.")
                     break
                 
                 ai_full_text += chunk
                 yield f"data: {json.dumps({'content': chunk})}\n\n"
 
-            if not await http_request.is_disconnected():
+            if not await request.is_disconnected():
                 yield "data: [DONE]\n\n"
 
         except asyncio.CancelledError:
@@ -104,8 +114,10 @@ async def add_message_stream(
 
 
 @router.post("/{id}/evaluate", response_model=EvaluationResponse)
+@limiter.limit("5/minute")
 async def evaluate_session(
     id: str,
+    request: Request,
     session_service: SessionService = Depends(get_session_service),
     transcript_service: TranscriptService = Depends(get_transcript_service),
     professor_agent: ProfessorAgent = Depends(get_professor_agent),

@@ -24,7 +24,9 @@ _global_pool = None
 ALLOWED_TABLES = {"users", "sessions", "transcripts", "otps"}
 ALLOWED_COLUMNS = {
     "id", "email", "session_id", "user_id", "created_at",
-    "otp_code", "expires_at", "role", "content",
+    "expires_at", "role", "content", "name", "password_hash",
+    "is_verified", "token_version", "topic", "persona", "status",
+    "otp_digest", "purpose", "attempts", "consumed_at",
 }
 
 def _validate_identifier(value: str, allowed: set, kind: str = "identifier"):
@@ -48,6 +50,10 @@ class PostgresClient:
 
     async def insert(self, table: str, data: dict) -> Optional[dict]:
         _validate_identifier(table, ALLOWED_TABLES, "table")
+        if not data:
+            raise ValueError("Insert data cannot be empty")
+        for column in data:
+            _validate_identifier(column, ALLOWED_COLUMNS, "column")
         if not self.pool:
             await self.connect()
             

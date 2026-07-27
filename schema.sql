@@ -10,6 +10,7 @@ CREATE TABLE users (
     password_hash TEXT NOT NULL,
     name TEXT NOT NULL,
     is_verified BOOLEAN DEFAULT FALSE,
+    token_version INTEGER NOT NULL DEFAULT 0,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -36,12 +37,16 @@ CREATE TABLE transcripts (
 CREATE TABLE otps (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     email TEXT NOT NULL,
-    otp_code VARCHAR(6) NOT NULL,
+    otp_digest CHAR(64) NOT NULL,
+    purpose VARCHAR(16) NOT NULL CHECK (purpose IN ('verify', 'reset')),
+    attempts SMALLINT NOT NULL DEFAULT 0 CHECK (attempts >= 0 AND attempts <= 5),
     expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    consumed_at TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Index untuk mempercepat query select_by_eq
 CREATE INDEX idx_sessions_user_id ON sessions(user_id);
 CREATE INDEX idx_transcripts_session_id ON transcripts(session_id);
-CREATE INDEX idx_otps_email ON otps(email);
+CREATE INDEX idx_otps_email_purpose_created
+    ON otps(email, purpose, created_at DESC);
