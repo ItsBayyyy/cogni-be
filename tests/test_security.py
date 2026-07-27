@@ -12,6 +12,7 @@ from app.core.audio_validation import has_valid_audio_signature, normalize_audio
 from app.core.config import Settings
 from app.core.postgres_client import PostgresClient
 from app.core.security import get_real_ip
+from app.core.speech_text import normalize_assistant_speech
 from app.schemas.transcript import MessageRequest
 
 
@@ -106,3 +107,15 @@ def test_browser_webm_codec_parameter_is_accepted_and_signature_checked():
     assert media_type == "audio/webm"
     assert has_valid_audio_signature(b"\x1a\x45\xdf\xa3webm-data", media_type)
     assert not has_valid_audio_signature(b"not-webm", media_type)
+
+
+@pytest.mark.parametrize(
+    "raw",
+    ["*laughs* Okay!", "**chuckles** Okay!", "[laughs] Okay!", "(giggles) Okay!"],
+)
+def test_laughter_stage_directions_become_speakable_interjections(raw):
+    normalized = normalize_assistant_speech(raw)
+    assert normalized == "Ha— Okay!"
+    assert "laugh" not in normalized.lower()
+    assert "chuckle" not in normalized.lower()
+    assert "giggle" not in normalized.lower()

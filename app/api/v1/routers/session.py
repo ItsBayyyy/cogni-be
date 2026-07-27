@@ -16,6 +16,7 @@ from app.schemas.transcript import MessageRequest, TranscriptResponse
 from app.schemas.evaluation import EvaluationResponse
 from app.api.dependencies import get_current_user  # Pastikan file dependencies.py sudah ada
 from app.core.security import limiter
+from app.core.speech_text import normalize_assistant_speech
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["session"])
@@ -108,7 +109,8 @@ async def add_message_stream(
 
         finally:
             if ai_full_text:
-                asyncio.create_task(transcript_service.add_message(id, "student_agent", ai_full_text))
+                stored_text = normalize_assistant_speech(ai_full_text)
+                asyncio.create_task(transcript_service.add_message(id, "student_agent", stored_text))
 
     return StreamingResponse(sse_generator(), media_type="text/event-stream")
 

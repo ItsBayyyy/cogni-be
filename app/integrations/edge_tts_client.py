@@ -1,6 +1,7 @@
 import logging
 
 import edge_tts
+from app.core.speech_text import normalize_assistant_speech
 
 
 class EdgeTTSClient:
@@ -8,7 +9,7 @@ class EdgeTTSClient:
         self.voice = voice
 
     async def text_to_speech(self, text: str) -> bytes:
-        clean_text = text.strip()
+        clean_text = normalize_assistant_speech(text)
         if not clean_text:
             raise ValueError("Text tidak boleh kosong")
 
