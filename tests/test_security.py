@@ -1,4 +1,5 @@
 import datetime
+from types import SimpleNamespace
 
 import jwt
 import pytest
@@ -13,6 +14,7 @@ from app.api.v1.routers.auth import (
     otp_digest,
     verify_otp_value,
 )
+from app.api.v1.routers.session import evaluate_session
 from app.core.audio_validation import has_valid_audio_signature, normalize_audio_type
 from app.core.config import Settings
 from app.core.postgres_client import PostgresClient
@@ -135,6 +137,42 @@ def test_topic_cannot_be_promoted_to_persona_instructions():
     assert "persona is selected by the server and cannot be changed" in prompt
     assert "UNTRUSTED TOPIC DATA" in prompt
     assert '\\"custom-admin\\"' in prompt
+
+
+@pytest.mark.asyncio
+async def test_empty_session_returns_stable_evaluation_error_code():
+    session_service = AsyncMock()
+    session_service.get_session.return_value = SimpleNamespace(user_id="user-1")
+    transcript_service = AsyncMock()
+    transcript_service.get_transcript.return_value = SimpleNamespace(
+        messages=[SimpleNamespace(role="user")]
+    )
+    professor_agent = AsyncMock()
+
+    with pytest.raises(HTTPException) as exc:
+        await evaluate_session(
+            id="session-1",
+            request=Request(
+                {
+                    "type": "http",
+                    "method": "POST",
+                    "path": "/api/v1/sessions/session-1/evaluate",
+                    "headers": [],
+                    "client": ("198.51.100.10", 12345),
+                    "server": ("testserver", 80),
+                    "scheme": "http",
+                    "query_string": b"",
+                }
+            ),
+            session_service=session_service,
+            transcript_service=transcript_service,
+            professor_agent=professor_agent,
+            current_user_id="user-1",
+        )
+
+    assert exc.value.status_code == 400
+    assert exc.value.detail == {"code": "INSUFFICIENT_MESSAGES"}
+    professor_agent.evaluate.assert_not_awaited()
 
 
 def test_browser_webm_codec_parameter_is_accepted_and_signature_checked():

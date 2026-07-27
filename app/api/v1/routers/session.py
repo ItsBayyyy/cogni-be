@@ -141,8 +141,15 @@ async def evaluate_session(
         raise HTTPException(status_code=404, detail="Session not found or unauthorized")
 
     transcript = await transcript_service.get_transcript(session_id=id)
-    if len(transcript.messages) < 2:
-        raise HTTPException(status_code=400, detail="Insufficient messages")
+    has_user_message = any(message.role == "user" for message in transcript.messages)
+    has_agent_message = any(
+        message.role == "student_agent" for message in transcript.messages
+    )
+    if not has_user_message or not has_agent_message:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "INSUFFICIENT_MESSAGES"},
+        )
 
     eval_data = await professor_agent.evaluate(transcript.messages)
     return EvaluationResponse(**eval_data)
