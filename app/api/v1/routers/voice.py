@@ -5,6 +5,11 @@ from app.integrations.groq_client import GroqClient
 from app.integrations.edge_tts_client import EdgeTTSClient
 from app.services.voice_service import VoiceService
 from app.api.dependencies import get_current_user
+from app.core.audio_validation import (
+    ALLOWED_AUDIO_TYPES,
+    has_valid_audio_signature,
+    normalize_audio_type,
+)
 from app.core.security import limiter
 import logging
 import traceback
@@ -26,14 +31,6 @@ class TTSRequest(BaseModel):
         return value
 
 MAX_AUDIO_BYTES = 10 * 1024 * 1024
-ALLOWED_AUDIO_TYPES = {
-    "audio/mpeg",
-    "audio/mp4",
-    "audio/ogg",
-    "audio/wav",
-    "audio/webm",
-    "video/webm",
-}
 
 # --- Dependencies ---
 def get_voice_service(settings: Settings = Depends(get_settings)) -> VoiceService:
@@ -51,12 +48,17 @@ async def transcribe_audio(
     service: VoiceService = Depends(get_voice_service),
     current_user_id: str = Depends(get_current_user)
 ):
-    if file.content_type not in ALLOWED_AUDIO_TYPES:
+    media_type = normalize_audio_type(file.content_type)
+    if media_type not in ALLOWED_AUDIO_TYPES:
         raise HTTPException(status_code=415, detail="Unsupported audio type")
 
     audio_bytes = await file.read(MAX_AUDIO_BYTES + 1)
     if len(audio_bytes) > MAX_AUDIO_BYTES:
         raise HTTPException(status_code=413, detail="Audio file is too large")
+    if not audio_bytes:
+        raise HTTPException(status_code=400, detail="Audio file is empty")
+    if not has_valid_audio_signature(audio_bytes, media_type):
+        raise HTTPException(status_code=415, detail="Audio content does not match its type")
     
     try:
         # Menjalankan proses transkripsi

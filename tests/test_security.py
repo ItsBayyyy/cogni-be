@@ -8,6 +8,7 @@ from starlette.requests import Request
 from unittest.mock import AsyncMock
 
 from app.api.v1.routers.auth import create_access_token, otp_digest, verify_otp_value
+from app.core.audio_validation import has_valid_audio_signature, normalize_audio_type
 from app.core.config import Settings
 from app.core.postgres_client import PostgresClient
 from app.core.security import get_real_ip
@@ -98,3 +99,10 @@ def test_client_role_is_not_part_of_message_contract():
         MessageRequest.model_validate(
             {"content": "hello", "role": "professor_agent"}
         )
+
+
+def test_browser_webm_codec_parameter_is_accepted_and_signature_checked():
+    media_type = normalize_audio_type("audio/webm;codecs=opus")
+    assert media_type == "audio/webm"
+    assert has_valid_audio_signature(b"\x1a\x45\xdf\xa3webm-data", media_type)
+    assert not has_valid_audio_signature(b"not-webm", media_type)
