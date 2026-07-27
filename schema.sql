@@ -19,7 +19,9 @@ CREATE TABLE sessions (
     session_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     topic TEXT NOT NULL,
-    persona TEXT NOT NULL,
+    persona TEXT NOT NULL CHECK (
+        persona IN ('friendly', 'strict', 'socratic', 'comedian', 'nain')
+    ),
     status TEXT DEFAULT 'active',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );

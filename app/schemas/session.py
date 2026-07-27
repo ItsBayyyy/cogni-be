@@ -2,8 +2,7 @@ from pydantic import BaseModel, Field, field_validator
 from datetime import datetime
 from typing import Literal
 
-# Menggunakan 3 role asik untuk AI Murid
-PersonaType = Literal['friendly', 'strict', 'socratic']
+PersonaType = Literal["friendly", "strict", "socratic", "comedian", "nain"]
 
 class SessionStartRequest(BaseModel):
     topic: str = Field(..., min_length=3, max_length=300, description="Topik yang dibicarakan.")
@@ -21,6 +20,6 @@ class SessionResponse(BaseModel):
     session_id: str
     user_id: str
     topic: str
-    persona: str
+    persona: PersonaType
     status: str
     created_at: datetime
