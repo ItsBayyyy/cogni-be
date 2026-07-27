@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     REDIS_URL: str = ""
     TRUSTED_PROXY_IPS: str = ""
     CORS_ORIGINS: str = "https://cogniflip-demo.vercel.app,http://localhost:3000"
+    DEMO_LOGIN_ENABLED: bool = False
     
     SMTP_HOST: str = "smtp.gmail.com"
     SMTP_PORT: int = 587

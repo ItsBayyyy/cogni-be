@@ -324,6 +324,56 @@ async def login(request: Request, user: UserLogin, db: PostgresClient = Depends(
         "user": {"id": str(db_user["id"]), "email": db_user["email"], "name": db_user["name"]}
     }
 
+
+@router.post("/demo", response_model=TokenResponse)
+@limiter.limit("10/hour")
+async def demo_login(
+    request: Request,
+    db: PostgresClient = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    if not settings.DEMO_LOGIN_ENABLED:
+        raise HTTPException(status_code=404, detail="Demo access is unavailable")
+
+    # Opportunistic cleanup. Demo users own only their isolated sessions, and
+    # cascading foreign keys remove their transcripts as well.
+    await db.execute(
+        """
+        DELETE FROM users
+        WHERE email LIKE 'demo-%@demo.cogniflip.invalid'
+          AND created_at < CURRENT_TIMESTAMP - INTERVAL '6 hours'
+        """
+    )
+
+    demo_id = str(uuid.uuid4())
+    demo_email = f"demo-{demo_id}@demo.cogniflip.invalid"
+    random_password = secrets.token_urlsafe(48).encode("utf-8")
+    password_hash = bcrypt.hashpw(random_password, bcrypt.gensalt()).decode("utf-8")
+    db_user = await db.insert(
+        "users",
+        {
+            "id": demo_id,
+            "email": demo_email,
+            "password_hash": password_hash,
+            "name": "Demo Judge",
+            "is_verified": True,
+            "token_version": 0,
+        },
+    )
+    if not db_user:
+        raise HTTPException(status_code=503, detail="Demo access is unavailable")
+
+    token = create_access_token(db_user, settings)
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "user": {
+            "id": str(db_user["id"]),
+            "email": db_user["email"],
+            "name": db_user["name"],
+        },
+    }
+
 @router.get("/me")
 async def get_me(db: PostgresClient = Depends(get_db), current_user_id: str = Depends(get_current_user)):
     users = await db.select_by_eq("users", "id", current_user_id)

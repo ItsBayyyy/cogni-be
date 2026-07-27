@@ -7,7 +7,12 @@ from pydantic import ValidationError
 from starlette.requests import Request
 from unittest.mock import AsyncMock
 
-from app.api.v1.routers.auth import create_access_token, otp_digest, verify_otp_value
+from app.api.v1.routers.auth import (
+    create_access_token,
+    demo_login,
+    otp_digest,
+    verify_otp_value,
+)
 from app.core.audio_validation import has_valid_audio_signature, normalize_audio_type
 from app.core.config import Settings
 from app.core.postgres_client import PostgresClient
@@ -134,3 +139,37 @@ async def test_turn_guard_rejects_parallel_turn_and_allows_after_release():
 
     await guard.release("session-1", "user-1", first_token)
     assert await guard.acquire("session-1", "user-1")
+
+
+@pytest.mark.asyncio
+async def test_demo_login_creates_an_isolated_verified_user():
+    cfg = settings()
+    cfg.DEMO_LOGIN_ENABLED = True
+    db = AsyncMock(spec=PostgresClient)
+
+    async def insert_demo(_table, data):
+        return {**data, "created_at": datetime.datetime.now(datetime.timezone.utc)}
+
+    db.insert.side_effect = insert_demo
+    result = await demo_login(
+        request=Request(
+            {
+                "type": "http",
+                "method": "POST",
+                "path": "/api/v1/auth/demo",
+                "headers": [],
+                "client": ("198.51.100.10", 12345),
+                "server": ("testserver", 80),
+                "scheme": "http",
+                "query_string": b"",
+            }
+        ),
+        db=db,
+        settings=cfg,
+    )
+
+    inserted = db.insert.await_args.args[1]
+    assert inserted["is_verified"] is True
+    assert inserted["email"].endswith("@demo.cogniflip.invalid")
+    assert result["access_token"]
+    assert result["user"]["name"] == "Demo Judge"
