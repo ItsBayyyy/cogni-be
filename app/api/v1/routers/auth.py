@@ -88,6 +88,10 @@ class TokenResponse(BaseModel):
 class MessageResponse(BaseModel):
     detail: str
 
+REGISTRATION_RESPONSE_DETAIL = (
+    "If registration can proceed, a verification code will be sent."
+)
+
 def get_db(settings: Settings = Depends(get_settings)) -> PostgresClient:
     return PostgresClient(url=settings.DATABASE_URL)
 
@@ -199,7 +203,7 @@ async def register(
     
     if existing:
         if existing[0].get("is_verified"):
-            return {"detail": "If registration can proceed, a verification code will be sent."}
+            return {"detail": REGISTRATION_RESPONSE_DETAIL}
         else:
             # Override Unverified logic
             await db.execute("UPDATE users SET password_hash = $1, name = $2 WHERE email = $3", hashed, user.name, user.email)
@@ -219,7 +223,7 @@ async def register(
     
     background_tasks.add_task(email_service.send_otp_email, user.email, otp_code)
     
-    return {"detail": "OTP sent to email. Please verify."}
+    return {"detail": REGISTRATION_RESPONSE_DETAIL}
 
 
 @router.post("/verify-otp", response_model=TokenResponse)

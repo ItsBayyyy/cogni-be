@@ -3,15 +3,18 @@ from types import SimpleNamespace
 
 import jwt
 import pytest
-from fastapi import HTTPException
+from fastapi import BackgroundTasks, HTTPException
 from pydantic import ValidationError
 from starlette.requests import Request
 from unittest.mock import AsyncMock
 
 from app.api.v1.routers.auth import (
+    REGISTRATION_RESPONSE_DETAIL,
+    UserRegister,
     create_access_token,
     demo_login,
     otp_digest,
+    register,
     verify_otp_value,
 )
 from app.api.v1.routers.session import evaluate_session
@@ -52,6 +55,45 @@ def test_access_token_requires_enterprise_claims():
     assert payload["ver"] == 4
     assert payload["type"] == "access"
     assert {"iat", "exp", "iss", "aud", "jti"} <= payload.keys()
+
+
+@pytest.mark.asyncio
+async def test_verified_registration_is_generic_and_sends_no_otp():
+    cfg = settings()
+    db = AsyncMock(spec=PostgresClient)
+    db.select_by_eq.return_value = [
+        {"id": "user-1", "email": "member@example.com", "is_verified": True}
+    ]
+    email_service = AsyncMock()
+    background_tasks = BackgroundTasks()
+
+    result = await register(
+        request=Request(
+            {
+                "type": "http",
+                "method": "POST",
+                "path": "/api/v1/auth/register",
+                "headers": [],
+                "client": ("198.51.100.10", 12345),
+                "server": ("testserver", 80),
+                "scheme": "http",
+                "query_string": b"",
+            }
+        ),
+        user=UserRegister(
+            name="Existing Member",
+            email="member@example.com",
+            password="StrongPass123",
+        ),
+        background_tasks=background_tasks,
+        db=db,
+        email_service=email_service,
+        settings=cfg,
+    )
+
+    assert result == {"detail": REGISTRATION_RESPONSE_DETAIL}
+    assert background_tasks.tasks == []
+    db.insert.assert_not_awaited()
 
 
 def test_otp_digest_is_purpose_bound_and_does_not_store_code():
