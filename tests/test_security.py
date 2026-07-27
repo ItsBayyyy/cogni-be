@@ -13,6 +13,7 @@ from app.core.config import Settings
 from app.core.postgres_client import PostgresClient
 from app.core.security import get_real_ip
 from app.core.speech_text import normalize_assistant_speech
+from app.core.turn_guard import TurnGuard
 from app.schemas.transcript import MessageRequest
 
 
@@ -119,3 +120,17 @@ def test_laughter_stage_directions_become_speakable_interjections(raw):
     assert "laugh" not in normalized.lower()
     assert "chuckle" not in normalized.lower()
     assert "giggle" not in normalized.lower()
+
+
+@pytest.mark.asyncio
+async def test_turn_guard_rejects_parallel_turn_and_allows_after_release():
+    guard = TurnGuard(ttl_seconds=30)
+    first_token = await guard.acquire("session-1", "user-1")
+    assert first_token
+    assert await guard.acquire("session-1", "user-1") is None
+
+    await guard.release("session-1", "user-1", "wrong-token")
+    assert await guard.acquire("session-1", "user-1") is None
+
+    await guard.release("session-1", "user-1", first_token)
+    assert await guard.acquire("session-1", "user-1")

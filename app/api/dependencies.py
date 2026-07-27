@@ -4,9 +4,14 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from app.core.config import get_settings, Settings
 from app.core.postgres_client import PostgresClient
+from app.core.turn_guard import TurnGuard, get_shared_turn_guard
 
 security = HTTPBearer()
 logger = logging.getLogger(__name__)
+
+
+def get_turn_guard(settings: Settings = Depends(get_settings)) -> TurnGuard:
+    return get_shared_turn_guard(settings.REDIS_URL)
 
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),

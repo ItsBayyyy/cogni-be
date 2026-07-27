@@ -2,7 +2,7 @@ import asyncio
 import json
 import logging
 from typing import List
-from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.responses import StreamingResponse
 from app.core.config import get_settings, Settings
 from app.core.postgres_client import PostgresClient
@@ -14,9 +14,10 @@ from app.agents.professor_agent import ProfessorAgent
 from app.schemas.session import SessionStartRequest, SessionResponse
 from app.schemas.transcript import MessageRequest, TranscriptResponse
 from app.schemas.evaluation import EvaluationResponse
-from app.api.dependencies import get_current_user  # Pastikan file dependencies.py sudah ada
+from app.api.dependencies import get_current_user, get_turn_guard
 from app.core.security import limiter
 from app.core.speech_text import normalize_assistant_speech
+from app.core.turn_guard import TurnGuard
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["session"])
@@ -72,21 +73,28 @@ async def get_all_sessions(
 async def add_message_stream(
     id: str,
     request_data: MessageRequest,
-    background_tasks: BackgroundTasks,
     request: Request,
     session_service: SessionService = Depends(get_session_service),
     transcript_service: TranscriptService = Depends(get_transcript_service),
     student_agent: StudentAgent = Depends(get_student_agent),
+    turn_guard: TurnGuard = Depends(get_turn_guard),
     current_user_id: str = Depends(get_current_user) # Keamanan: Cek token
 ):
     # Dapatkan sesi sekaligus personanya
     session = await session_service.get_session(id)
     if not session or session.user_id != current_user_id:
         raise HTTPException(status_code=404, detail="Session not found or unauthorized")
-        
-    background_tasks.add_task(transcript_service.add_message, id, "user", request_data.content)
 
-    transcript = await transcript_service.get_transcript(session_id=id)
+    turn_token = await turn_guard.acquire(id, current_user_id)
+    if not turn_token:
+        raise HTTPException(status_code=409, detail="A turn is already in progress")
+
+    try:
+        transcript = await transcript_service.get_transcript(session_id=id)
+        await transcript_service.add_message(id, "user", request_data.content)
+    except Exception:
+        await turn_guard.release(id, current_user_id, turn_token)
+        raise
 
     async def sse_generator():
         ai_full_text = ""
@@ -108,9 +116,12 @@ async def add_message_stream(
             raise 
 
         finally:
-            if ai_full_text:
-                stored_text = normalize_assistant_speech(ai_full_text)
-                asyncio.create_task(transcript_service.add_message(id, "student_agent", stored_text))
+            try:
+                if ai_full_text:
+                    stored_text = normalize_assistant_speech(ai_full_text)
+                    await transcript_service.add_message(id, "student_agent", stored_text)
+            finally:
+                await turn_guard.release(id, current_user_id, turn_token)
 
     return StreamingResponse(sse_generator(), media_type="text/event-stream")
 
